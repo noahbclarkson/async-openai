@@ -1,6 +1,6 @@
 //! Errors originating from API calls, parsing responses, and reading-or-writing to the file system.
 
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 #[cfg(all(feature = "_api", not(target_family = "wasm")))]
 #[derive(Debug, thiserror::Error)]
@@ -88,7 +88,55 @@ pub struct ApiError {
     pub message: String,
     pub r#type: Option<String>,
     pub param: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_code")]
     pub code: Option<String>,
+}
+
+fn deserialize_code<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Visitor;
+
+    struct CodeVisitor;
+
+    impl<'de> Visitor<'de> for CodeVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a string, integer, or null")
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(Some(v.to_owned()))
+        }
+
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+            Ok(Some(v))
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+
+        fn visit_some<D2: Deserializer<'de>>(self, deserializer: D2) -> Result<Self::Value, D2::Error> {
+            deserializer.deserialize_any(CodeVisitor)
+        }
+    }
+
+    deserializer.deserialize_any(CodeVisitor)
 }
 
 impl std::fmt::Display for ApiError {
